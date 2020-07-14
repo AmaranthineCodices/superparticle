@@ -11,17 +11,12 @@ mod state;
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut renderer = renderer::Renderer::new(&window).await;
-    let mut game_state = state::GameState::new();
-
     let test_tex_id = renderer.load_texture("textures/test_particle.png").unwrap();
-    game_state.world.spawn((
-        state::Texture(test_tex_id),
-        state::Transform {
-            x: 100.0,
-            y: 50.0,
-            rotation: 0.0,
-        },
-    ));
+
+    let mut game_state = state::GameState::new(
+        (window.inner_size().width, window.inner_size().height),
+        test_tex_id,
+    );
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
