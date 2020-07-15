@@ -527,7 +527,7 @@ impl Renderer {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(transform_ref));
     }
 
-    pub fn prepare_render(&mut self, game_state: &crate::state::GameState) {
+    pub fn prepare_draw(&mut self, game_state: &crate::state::GameState) {
         for texture_idx in (self.spritebatches.len() - 1)..=0 {
             log::debug!(
                 "Preparing rendering for spritebatch with texture ID {}",

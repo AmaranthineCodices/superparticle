@@ -33,7 +33,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 let dt = (now - game_state.current_time).as_secs_f32();
                 game_state.current_time = now;
                 game_state.step(dt);
-                renderer.prepare_render(&game_state);
+                renderer.prepare_draw(&game_state);
                 renderer.draw();
             }
             Event::MainEventsCleared => {
