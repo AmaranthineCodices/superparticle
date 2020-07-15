@@ -571,7 +571,13 @@ impl Renderer {
                 (1.0, 1.0, 1.0)
             };
 
-            drawer.draw(transform.x, transform.y, 16.0, 16.0, r, g, b);
+            let (w, h) = if let Ok(size) = game_state.world.get::<state::Size>(id) {
+                (size.x, size.y)
+            } else {
+                (16.0, 16.0)
+            };
+
+            drawer.draw(transform.x, transform.y, w, h, r, g, b);
         }
 
         for drawer in drawers {

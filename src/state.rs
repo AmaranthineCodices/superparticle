@@ -20,6 +20,12 @@ pub struct Velocity {
 }
 
 #[derive(Copy, Clone, Debug)]
+pub struct Size {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct Texture(pub crate::renderer::TextureId);
 
 #[derive(Copy, Clone, Debug)]
@@ -75,14 +81,17 @@ impl GameState {
             let pos_x_distribution = Uniform::from(10..self.window_size.0);
             let pos_y_distribution = Uniform::from(10..self.window_size.1);
             let velocity_distribution = Uniform::from(-100.0..100.0);
+            let size_distribution = Uniform::from(8.0..48.0);
             let mut rng = rand::thread_rng();
 
             let particle_texture = self.particle_texture;
 
             self.world
                 .spawn_batch((entity_count..=EQUILIBRIUM_PARTICLE_COUNT).map(|_i| {
+                    let size = size_distribution.sample(&mut rng) as f32;
                     (
                         Texture(particle_texture),
+                        Size { x: size, y: size },
                         Transform {
                             x: pos_x_distribution.sample(&mut rng) as _,
                             y: pos_y_distribution.sample(&mut rng) as _,
