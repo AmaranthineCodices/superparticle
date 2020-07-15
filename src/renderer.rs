@@ -528,32 +528,36 @@ impl Renderer {
     }
 
     pub fn prepare_draw(&mut self, game_state: &crate::state::GameState) {
-        for texture_idx in (self.spritebatches.len() - 1)..=0 {
-            log::debug!(
-                "Preparing rendering for spritebatch with texture ID {}",
-                texture_idx
+        let mut drawers: Vec<SpriteBatchDrawer> = self
+            .spritebatches
+            .drain(..)
+            .map(|batch| batch.begin())
+            .collect();
+
+        for (_id, (transform, texture)) in game_state
+            .world
+            .query::<(&state::Transform, &state::Texture)>()
+            .into_iter()
+        {
+            debug_assert!(
+                texture.0.inner_id < drawers.len(),
+                "Texture ID {} is invalid for this Renderer (value out of range)",
+                texture.0.inner_id
+            );
+            let drawer = &mut drawers[texture.0.inner_id];
+
+            log::trace!(
+                "Particle at {}, {} with texture ID {}",
+                transform.x,
+                transform.y,
+                texture.0.inner_id,
             );
 
-            let batch = self.spritebatches.remove(texture_idx);
-            let texture_id = TextureId {
-                inner_id: texture_idx,
-            };
+            drawer.draw(transform.x, transform.y, 16.0, 16.0);
+        }
 
-            let mut drawer = batch.begin();
-
-            for (_id, (transform, texture)) in game_state
-                .world
-                .query::<(&state::Transform, &state::Texture)>()
-                .into_iter()
-            {
-                if texture.0.inner_id == texture_id.inner_id {
-                    log::trace!("Particle at {}, {}", transform.x, transform.y);
-                    drawer.draw(transform.x, transform.y, 16.0, 16.0);
-                }
-            }
-
-            self.spritebatches
-                .insert(texture_idx, Box::new(drawer.finish(self)));
+        for drawer in drawers {
+            self.spritebatches.push(Box::new(drawer.finish(&self)));
         }
     }
 
