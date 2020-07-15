@@ -580,7 +580,6 @@ impl Renderer {
     }
 
     pub fn draw(&mut self) {
-        log::trace!("Rendering");
         let frame = self.swap_chain.get_next_frame().unwrap().output;
 
         let mut encoder = self
