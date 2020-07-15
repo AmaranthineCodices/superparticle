@@ -3,6 +3,7 @@ use std::time::Instant;
 const EQUILIBRIUM_PARTICLE_COUNT: u32 = 10000;
 
 use rand::distributions::{Distribution, Uniform};
+use rand::Rng;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Transform {
@@ -20,6 +21,13 @@ pub struct Velocity {
 
 #[derive(Copy, Clone, Debug)]
 pub struct Texture(pub crate::renderer::TextureId);
+
+#[derive(Copy, Clone, Debug)]
+pub struct Tint {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
 
 pub struct GameState {
     pub world: hecs::World,
@@ -84,6 +92,11 @@ impl GameState {
                             x_velocity: velocity_distribution.sample(&mut rng) as _,
                             y_velocity: velocity_distribution.sample(&mut rng) as _,
                             rotation: 0.0,
+                        },
+                        Tint {
+                            r: rng.gen(),
+                            g: rng.gen(),
+                            b: rng.gen(),
                         },
                     )
                 }));

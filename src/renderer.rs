@@ -68,13 +68,15 @@ pub struct TextureId {
 struct Instance {
     position: [f32; 2],
     size: [f32; 2],
+    tint: [f32; 4],
 }
 
 impl Instance {
-    fn new(x: f32, y: f32, w: f32, h: f32) -> Instance {
+    fn new(x: f32, y: f32, w: f32, h: f32, r: f32, g: f32, b: f32) -> Instance {
         Instance {
             position: [x, y],
             size: [w, h],
+            tint: [r, g, b, 1.0],
         }
     }
 }
@@ -212,8 +214,8 @@ impl SpriteBatch {
 }
 
 impl<'renderer> SpriteBatchDrawer {
-    fn draw(&mut self, x: f32, y: f32, w: f32, h: f32) {
-        self.instances.push(Instance::new(x, y, w, h));
+    fn draw(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, g: f32, b: f32) {
+        self.instances.push(Instance::new(x, y, w, h, r, g, b));
     }
 
     fn finish(mut self, renderer: &Renderer) -> SpriteBatch {
@@ -544,7 +546,7 @@ impl Renderer {
             .map(|batch| batch.begin())
             .collect();
 
-        for (_id, (transform, texture)) in game_state
+        for (id, (transform, texture)) in game_state
             .world
             .query::<(&state::Transform, &state::Texture)>()
             .into_iter()
@@ -563,7 +565,13 @@ impl Renderer {
                 texture.0.inner_id,
             );
 
-            drawer.draw(transform.x, transform.y, 16.0, 16.0);
+            let (r, g, b) = if let Ok(tint) = game_state.world.get::<state::Tint>(id) {
+                (tint.r, tint.g, tint.b)
+            } else {
+                (1.0, 1.0, 1.0)
+            };
+
+            drawer.draw(transform.x, transform.y, 16.0, 16.0, r, g, b);
         }
 
         for drawer in drawers {
