@@ -15,7 +15,7 @@ image = { version = "0.23.4", default-features = false, features = [ "png" ] }
 log = "0.4"
 pretty_env_logger = "0.4.0"
 rand = "0.7.3"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs/" }
+wgpu = "^0.6.2"
 winit = "0.22.1"
 
 [build-dependencies]

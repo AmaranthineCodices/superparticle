@@ -4,6 +4,8 @@ use crate::state;
 
 use image::GenericImageView;
 
+use wgpu::util::DeviceExt;
+
 #[cfg(debug_assertions)]
 fn asset_base_path() -> std::path::PathBuf {
     let exe_path = std::env::current_exe().unwrap();
@@ -154,7 +156,10 @@ impl SpriteBatch {
             extents,
         );
 
-        let view = texture.create_default_view();
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            ..Default::default()
+        });
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -338,11 +343,17 @@ impl Renderer {
             .unwrap();
 
         let (vertices, indices) = create_sprite_vertices();
-        let vertex_buffer = device
-            .create_buffer_with_data(bytemuck::cast_slice(&vertices), wgpu::BufferUsage::VERTEX);
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsage::VERTEX,
+        });
 
-        let index_buffer = device
-            .create_buffer_with_data(bytemuck::cast_slice(&indices), wgpu::BufferUsage::INDEX);
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsage::INDEX,
+        });
 
         let mut vs_path = asset_path.clone();
         vs_path.push("shaders");
@@ -359,18 +370,19 @@ impl Renderer {
         let fs_module = device.create_shader_module(fs_module_src);
 
         let transform_ref: &[f32; 16] = camera_transform.as_ref();
-        let uniform_buffer = device.create_buffer_with_data(
-            bytemuck::cast_slice(transform_ref),
-            wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-        );
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(transform_ref),
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+        });
 
         let spritebatch_bind_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    wgpu::BindGroupLayoutEntry::new(
-                        0,
-                        wgpu::ShaderStage::VERTEX,
-                        wgpu::BindingType::StorageBuffer {
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStage::VERTEX,
+                        ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
                             min_binding_size: wgpu::BufferSize::new(
@@ -378,36 +390,40 @@ impl Renderer {
                                     * std::mem::size_of::<Instance>() as u64,
                             ),
                         },
-                    ),
-                    wgpu::BindGroupLayoutEntry::new(
-                        1,
-                        wgpu::ShaderStage::FRAGMENT,
-                        wgpu::BindingType::SampledTexture {
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::SampledTexture {
                             multisampled: false,
                             dimension: wgpu::TextureViewDimension::D2,
                             component_type: wgpu::TextureComponentType::Uint,
                         },
-                    ),
-                    wgpu::BindGroupLayoutEntry::new(
-                        2,
-                        wgpu::ShaderStage::FRAGMENT,
-                        wgpu::BindingType::Sampler { comparison: false },
-                    ),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler { comparison: false },
+                        count: None,
+                    },
                 ],
                 label: Some("Spritebatch bind group layout"),
             });
 
         let main_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry::new(
-                0,
-                wgpu::ShaderStage::VERTEX,
-                wgpu::BindingType::UniformBuffer {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::VERTEX,
+                ty: wgpu::BindingType::UniformBuffer {
                     dynamic: false,
                     min_binding_size: wgpu::BufferSize::new(
                         std::mem::size_of::<cgmath::Matrix4<f32>>() as _,
                     ),
                 },
-            )],
+                count: None,
+            }],
             label: Some("Main bind group layout"),
         });
 
@@ -423,10 +439,11 @@ impl Renderer {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&main_bind_layout, &spritebatch_bind_layout],
             push_constant_ranges: &[],
+            label: None,
         });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            layout: Some(&pipeline_layout),
 
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vs_module,
@@ -467,6 +484,7 @@ impl Renderer {
                 depth_bias: 0,
                 depth_bias_clamp: 0.0,
                 depth_bias_slope_scale: 0.0,
+                ..Default::default()
             }),
             depth_stencil_state: None,
             color_states: &[wgpu::ColorStateDescriptor {
@@ -490,6 +508,7 @@ impl Renderer {
             sample_count: 1,
             sample_mask: !0,
             alpha_to_coverage_enabled: false,
+            label: None,
         });
 
         let swap_chain_descriptor = wgpu::SwapChainDescriptor {
@@ -586,7 +605,7 @@ impl Renderer {
     }
 
     pub fn draw(&mut self) {
-        let frame = self.swap_chain.get_next_frame().unwrap().output;
+        let frame = self.swap_chain.get_current_frame().unwrap().output;
 
         let mut encoder = self
             .device
