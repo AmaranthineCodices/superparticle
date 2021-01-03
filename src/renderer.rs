@@ -75,12 +75,9 @@ fn create_sprite_vertices(x: f32, y: f32, w: f32, h: f32) -> Vec<Vertex> {
 }
 
 const SPRITEBATCH_BUFFER_STARTING_SIZE: u64 = 64;
-const SPRITEBATCH_VERTEX_INDICES: &'static [u16] = &[0, 1, 2, 2, 3, 0];
 
 struct SpriteBatch {
     label: String,
-    texture_view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
     vertex_buffer: wgpu::Buffer,
     vertex_buffer_capacity: u64,
     vertex_count: u64,
@@ -170,8 +167,6 @@ impl SpriteBatch {
         });
 
         SpriteBatch {
-            texture_view: view,
-            sampler,
             vertex_buffer,
             vertex_buffer_capacity: SPRITEBATCH_BUFFER_STARTING_SIZE,
             vertex_count: 0,
