@@ -1,0 +1,44 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct Sprite {
+    vec2 position;
+    vec2 size;
+};
+
+struct Vertex {
+    vec2 position;
+    vec2 uv;
+};
+
+layout(set = 0, binding = 0) buffer Sprites {
+    Sprite sprites[];
+} inputBuffer;
+
+layout(set = 0, binding = 1) buffer Vertices {
+    Vertex vertices[];
+} outputBuffer;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    Sprite sprite = inputBuffer.sprites[idx];
+
+    outputBuffer.vertices[idx * 6 + 0].position = sprite.position;
+    outputBuffer.vertices[idx * 6 + 0].uv = vec2(0.0f, 0.0f);
+
+    outputBuffer.vertices[idx * 6 + 1].position = sprite.position + vec2(sprite.size.x, 0.0f);
+    outputBuffer.vertices[idx * 6 + 1].uv = vec2(1.0f, 0.0f);
+
+    outputBuffer.vertices[idx * 6 + 2].position = sprite.position + sprite.size;
+    outputBuffer.vertices[idx * 6 + 2].uv = vec2(1.0f, 1.0f);
+
+    outputBuffer.vertices[idx * 6 + 3].position = sprite.position + sprite.size;
+    outputBuffer.vertices[idx * 6 + 3].uv = vec2(1.0f, 1.0f);
+
+    outputBuffer.vertices[idx * 6 + 4].position = sprite.position + vec2(0.0f, sprite.size.y);
+    outputBuffer.vertices[idx * 6 + 4].uv = vec2(0.0f, 1.0f);
+
+    outputBuffer.vertices[idx * 6 + 5].position = sprite.position;
+    outputBuffer.vertices[idx * 6 + 5].uv = vec2(0.0f, 0.0f);
+}

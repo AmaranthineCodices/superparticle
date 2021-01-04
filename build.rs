@@ -32,6 +32,7 @@ fn build_shaders() -> Result<(), Box<dyn Error>> {
             "vs" => shaderc::ShaderKind::Vertex,
             "vert" => shaderc::ShaderKind::Vertex,
             "frag" => shaderc::ShaderKind::Fragment,
+            "compute" => shaderc::ShaderKind::Compute,
             unknown => {
                 println!("cargo:warning=Couldn't guess shader kind for the shader {}: extension {} isn't known. Will try to infer from source.", path.display(), unknown);
                 shaderc::ShaderKind::InferFromSource

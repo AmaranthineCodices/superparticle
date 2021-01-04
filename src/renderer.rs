@@ -4,7 +4,7 @@ use crate::state;
 
 use image::GenericImageView;
 
-use wgpu::util::DeviceExt;
+use wgpu::{ProgrammableStageDescriptor, util::DeviceExt};
 
 #[cfg(debug_assertions)]
 fn asset_base_path() -> std::path::PathBuf {
@@ -46,46 +46,39 @@ struct Vertex {
     uv: [f32; 2],
 }
 
-impl Vertex {
-    fn new(x: f32, y: f32, u: f32, v: f32) -> Self {
-        Self {
-            pos: [x, y],
-            uv: [u, v],
-        }
-    }
-}
-
 unsafe impl bytemuck::Zeroable for Vertex {}
 unsafe impl bytemuck::Pod for Vertex {}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct Sprite {
+    pos: [f32; 2],
+    size: [f32; 2],
+}
+
+unsafe impl bytemuck::Zeroable for Sprite {}
+unsafe impl bytemuck::Pod for Sprite {}
 
 #[derive(Copy, Clone, Debug)]
 pub struct TextureId {
     inner_id: usize,
 }
 
-fn create_sprite_vertices(x: f32, y: f32, w: f32, h: f32) -> Vec<Vertex> {
-    vec![
-        Vertex::new(x, y, 0.0, 0.0),
-        Vertex::new(x + w, y, 1.0, 0.0),
-        Vertex::new(x + w, y + h, 1.0, 1.0),
-        Vertex::new(x + w, y + h, 1.0, 1.0),
-        Vertex::new(x, y + h, 0.0, 1.0),
-        Vertex::new(x, y, 0.0, 0.0),
-    ]
-}
-
 const SPRITEBATCH_BUFFER_STARTING_SIZE: u64 = 64;
 
 struct SpriteBatch {
     label: String,
+    sprite_buffer: wgpu::Buffer,
+    sprite_buffer_capacity: u64,
+    sprite_count: u64,
     vertex_buffer: wgpu::Buffer,
     vertex_buffer_capacity: u64,
-    vertex_count: u64,
-    bind_group: wgpu::BindGroup,
+    render_bind_group: wgpu::BindGroup,
+    compute_bind_group: wgpu::BindGroup,
 }
 
 struct SpriteBatchDrawer {
-    verts: Vec<Vertex>,
+    sprites: Vec<Sprite>,
     batch: Box<SpriteBatch>,
 }
 
@@ -94,7 +87,8 @@ impl SpriteBatch {
         texture: &image::DynamicImage,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        bind_group_layout: &wgpu::BindGroupLayout,
+        render_bind_group_layout: &wgpu::BindGroupLayout,
+        compute_bind_group_layout: &wgpu::BindGroupLayout,
         label: &str,
     ) -> SpriteBatch {
         let bytes = texture.as_rgba8().unwrap();
@@ -147,12 +141,19 @@ impl SpriteBatch {
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(&("Vertex buffer for ".to_owned() + label)),
             size: SPRITEBATCH_BUFFER_STARTING_SIZE * std::mem::size_of::<Vertex>() as u64,
-            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
             mapped_at_creation: false,
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bind_group_layout,
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&("Sprite buffer for ".to_owned() + label)),
+            size: SPRITEBATCH_BUFFER_STARTING_SIZE * std::mem::size_of::<Sprite>() as u64,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &render_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -166,11 +167,29 @@ impl SpriteBatch {
             label: Some(label),
         });
 
+        let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &compute_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(sprite_buffer.slice(..)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(vertex_buffer.slice(..)),
+                }
+            ],
+            label: Some(label),
+        });
+
         SpriteBatch {
             vertex_buffer,
             vertex_buffer_capacity: SPRITEBATCH_BUFFER_STARTING_SIZE,
-            vertex_count: 0,
-            bind_group,
+            sprite_buffer,
+            sprite_buffer_capacity: SPRITEBATCH_BUFFER_STARTING_SIZE,
+            sprite_count: 0,
+            render_bind_group,
+            compute_bind_group,
             label: label.to_owned(),
         }
     }
@@ -179,7 +198,7 @@ impl SpriteBatch {
         debug_assert!(self.vertex_buffer_capacity <= (usize::MAX as u64));
 
         SpriteBatchDrawer {
-            verts: Vec::with_capacity(self.vertex_buffer_capacity as usize),
+            sprites: Vec::with_capacity(self.sprite_buffer_capacity as usize),
             batch: Box::new(self),
         }
     }
@@ -187,15 +206,19 @@ impl SpriteBatch {
 
 impl<'renderer> SpriteBatchDrawer {
     fn draw(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32, g: f32, b: f32) {
-        for vertex in create_sprite_vertices(x, y, w, h) {
-            self.verts.push(vertex);
-        }
+        self.sprites.push(Sprite {
+            pos: [x, y],
+            size: [w, h],
+        });
     }
 
     fn finish(mut self, renderer: &Renderer) -> SpriteBatch {
-        let vertex_count = self.verts.len() as u64;
+        let sprite_count = self.sprites.len() as u64;
+        let vertex_count = sprite_count * 6;
 
-        // Need to grow the instance buffer to fit.
+        let recreate_compute_bind_group = sprite_count > self.batch.sprite_buffer_capacity || vertex_count > self.batch.vertex_buffer_capacity;
+
+        // Need to grow the vertex buffer to fit.
         if vertex_count > self.batch.vertex_buffer_capacity {
             log::debug!(
                 "Resizing spritebatch vertex buffer from {} elements to {} ({} bytes)",
@@ -207,22 +230,58 @@ impl<'renderer> SpriteBatchDrawer {
             self.batch.vertex_buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&("Vertex buffer for ".to_owned() + &self.batch.label)),
                 size: vertex_count * std::mem::size_of::<Vertex>() as u64,
-                usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
+                usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
                 mapped_at_creation: false,
             });
 
             self.batch.vertex_buffer_capacity = vertex_count
         }
 
-        log::trace!("Writing {} vertices to spritebatch buffer", vertex_count);
+        if sprite_count > self.batch.sprite_buffer_capacity {
+            log::debug!(
+                "Resizing spritebatch sprite buffer from {} elements to {} ({} bytes)",
+                self.batch.sprite_buffer_capacity,
+                sprite_count,
+                sprite_count * std::mem::size_of::<Sprite>() as u64
+            );
 
-        renderer.queue.write_buffer(
-            &self.batch.vertex_buffer,
-            0,
-            bytemuck::cast_slice(&self.verts),
-        );
+            self.batch.sprite_buffer =
+                renderer
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&("Sprite buffer for ".to_owned() + &self.batch.label)),
+                        contents: bytemuck::cast_slice(&self.sprites),
+                        usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+                    });
 
-        self.batch.vertex_count = vertex_count;
+            self.batch.sprite_buffer_capacity = sprite_count;
+        } else {
+            log::trace!("Writing {} sprites to spritebatch buffer", sprite_count);
+            renderer.queue.write_buffer(
+                &self.batch.sprite_buffer,
+                0,
+                bytemuck::cast_slice(&self.sprites),
+            );
+        }
+
+        if recreate_compute_bind_group {
+            self.batch.compute_bind_group = renderer.device.create_bind_group( &wgpu::BindGroupDescriptor {
+                layout: &renderer.spritebatch_compute_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(self.batch.sprite_buffer.slice(..)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(self.batch.vertex_buffer.slice(..)),
+                    }
+                ],
+                label: Some(&self.batch.label),
+            })
+        }
+
+        self.batch.sprite_count = sprite_count;
 
         *self.batch
     }
@@ -249,9 +308,11 @@ pub struct Renderer {
     swap_chain: wgpu::SwapChain,
     swap_chain_descriptor: wgpu::SwapChainDescriptor,
     pipeline: wgpu::RenderPipeline,
+    spritebatch_compute_pipeline: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
-    spritebatch_bind_layout: wgpu::BindGroupLayout,
+    spritebatch_render_bind_group_layout: wgpu::BindGroupLayout,
+    spritebatch_compute_bind_group_layout: wgpu::BindGroupLayout,
     spritebatches: Vec<Box<SpriteBatch>>,
 }
 
@@ -296,6 +357,13 @@ impl Renderer {
         let fs_bytes = fs::read(fs_path).expect("could not read main.frag.spv");
         let fs_module_src = wgpu::util::make_spirv(&fs_bytes[..]);
         let fs_module = device.create_shader_module(fs_module_src);
+
+        let mut cs_path = asset_path.clone();
+        cs_path.push("shaders");
+        cs_path.push("main.compute.spv");
+        let cs_bytes = fs::read(cs_path).expect("could not read main.compute.spv");
+        let cs_module_src = wgpu::util::make_spirv(&cs_bytes[..]);
+        let cs_module = device.create_shader_module(cs_module_src);
 
         let transform_ref: &[f32; 16] = camera_transform.as_ref();
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -342,6 +410,33 @@ impl Renderer {
             label: Some("Main bind group layout"),
         });
 
+        let compute_bind_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            readonly: true,
+                            dynamic: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            readonly: false,
+                            dynamic: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("Compute bind group layout"),
+            });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &main_bind_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -352,7 +447,10 @@ impl Renderer {
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            bind_group_layouts: &[&main_bind_layout, &spritebatch_bind_layout],
+            bind_group_layouts: &[
+                &main_bind_layout,
+                &spritebatch_bind_layout,
+            ],
             push_constant_ranges: &[],
             label: None,
         });
@@ -421,6 +519,21 @@ impl Renderer {
             label: None,
         });
 
+        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Spritebatch compute pipeline layout"),
+            bind_group_layouts: &[ &compute_bind_layout ],
+            push_constant_ranges: &[],
+        });
+
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Spritebatch compute pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            compute_stage: ProgrammableStageDescriptor {
+                module: &cs_module,
+                entry_point: "main",
+            },
+        });
+
         let swap_chain_descriptor = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
@@ -441,7 +554,9 @@ impl Renderer {
             pipeline: render_pipeline,
             bind_group,
             uniform_buffer,
-            spritebatch_bind_layout,
+            spritebatch_render_bind_group_layout: spritebatch_bind_layout,
+            spritebatch_compute_bind_group_layout: compute_bind_layout,
+            spritebatch_compute_pipeline: compute_pipeline,
             spritebatches: vec![],
         }
     }
@@ -517,6 +632,17 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        
+        {
+            let mut pass = encoder.begin_compute_pass();
+            pass.set_pipeline(&self.spritebatch_compute_pipeline);
+            
+            for texture_idx in 0..self.spritebatches.len() {
+                let spritebatch = self.spritebatches.get(texture_idx).unwrap();
+                pass.set_bind_group(0, &spritebatch.compute_bind_group, &[]);
+                pass.dispatch(spritebatch.sprite_count as u32, 1, 1);
+            }
+        }
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -536,9 +662,9 @@ impl Renderer {
 
             for texture_idx in 0..self.spritebatches.len() {
                 let spritebatch = self.spritebatches.get(texture_idx).unwrap();
-                pass.set_bind_group(1, &spritebatch.bind_group, &[]);
+                pass.set_bind_group(1, &spritebatch.render_bind_group, &[]);
                 pass.set_vertex_buffer(0, spritebatch.vertex_buffer.slice(..));
-                pass.draw(0..spritebatch.vertex_count as u32, 0..1);
+                pass.draw(0..(spritebatch.sprite_count * 6) as u32, 0..1);
             }
         }
 
@@ -555,7 +681,8 @@ impl Renderer {
             &image,
             &self.device,
             &self.queue,
-            &self.spritebatch_bind_layout,
+            &self.spritebatch_render_bind_group_layout,
+            &self.spritebatch_compute_bind_group_layout,
             path_fragment,
         );
 
