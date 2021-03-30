@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-pub const EQUILIBRIUM_PARTICLE_COUNT: usize = 100_000;
+pub const EQUILIBRIUM_PARTICLE_COUNT: usize = 1_000_000;
 
 use rand::distributions::{Distribution, Uniform};
 use rand::Rng;
