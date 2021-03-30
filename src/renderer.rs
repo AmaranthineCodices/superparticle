@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::state;
+use crate::state::{EQUILIBRIUM_PARTICLE_COUNT, GameState};
 
 use image::GenericImageView;
 
@@ -580,45 +580,21 @@ impl Renderer {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(transform_ref));
     }
 
-    pub fn prepare_draw(&mut self, game_state: &crate::state::GameState) {
+    pub fn prepare_draw(&mut self, game_state: &GameState) {
         let mut drawers: Vec<SpriteBatchDrawer> = self
             .spritebatches
             .drain(..)
             .map(|batch| batch.begin())
             .collect();
+        
+        for i in 0..EQUILIBRIUM_PARTICLE_COUNT {
+            // TODO: This drawer needs to be acquired in a different way
+            let drawer = &mut drawers[0];
 
-        for (id, (transform, texture)) in game_state
-            .world
-            .query::<(&state::Transform, &state::Texture)>()
-            .into_iter()
-        {
-            debug_assert!(
-                texture.0.inner_id < drawers.len(),
-                "Texture ID {} is invalid for this Renderer (value out of range)",
-                texture.0.inner_id
-            );
-            let drawer = &mut drawers[texture.0.inner_id];
-
-            log::trace!(
-                "Particle at {}, {} with texture ID {}",
-                transform.x,
-                transform.y,
-                texture.0.inner_id,
-            );
-
-            let (r, g, b) = if let Ok(tint) = game_state.world.get::<state::Tint>(id) {
-                (tint.r, tint.g, tint.b)
-            } else {
-                (1.0, 1.0, 1.0)
-            };
-
-            let (w, h) = if let Ok(size) = game_state.world.get::<state::Size>(id) {
-                (size.x, size.y)
-            } else {
-                (16.0, 16.0)
-            };
-
-            drawer.draw(transform.x, transform.y, w, h, r, g, b);
+            let (x, y) = game_state.particles.positions[i];
+            let (r, g, b) = game_state.particles.colors[i];
+            let (w, h) = (game_state.particles.scales[i], game_state.particles.scales[i]);
+            drawer.draw(x, y, w, h, r, g, b);
         }
 
         for drawer in drawers {

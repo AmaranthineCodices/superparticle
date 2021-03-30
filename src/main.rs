@@ -15,7 +15,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let mut game_state = state::GameState::new(
         (window.inner_size().width, window.inner_size().height),
-        test_tex_id,
     );
 
     event_loop.run(move |event, _, control_flow| {

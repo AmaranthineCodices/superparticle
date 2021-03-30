@@ -7,12 +7,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "567b077b825e468cc974f0020d4082ee6e03132512f207ef1a02fd5d00d1f32d"
 
 [[package]]
-name = "ahash"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8fd72866655d1904d6b0997d0b07ba561047d070fbe29de039031c641b61217"
-
-[[package]]
 name = "aho-corasick"
 version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -676,25 +670,6 @@ dependencies = [
  "gfx-hal",
  "log",
  "slab",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96282e96bfcd3da0d3aa9938bedf1e50df3269b6db08b4876d2da0bb1a0841cf"
-dependencies = [
- "ahash",
- "autocfg 1.0.0",
-]
-
-[[package]]
-name = "hecs"
-version = "0.2.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c5b6d45e4de30a6f89c5f5b544f5467a592e20561f7741f316cb7f1f29d8210"
-dependencies = [
- "hashbrown",
 ]
 
 [[package]]
@@ -1618,7 +1593,6 @@ dependencies = [
  "bytemuck 0.1.2",
  "cgmath",
  "futures",
- "hecs",
  "image",
  "log",
  "pretty_env_logger",
