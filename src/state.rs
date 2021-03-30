@@ -19,8 +19,8 @@ pub struct GameState {
 }
 
 fn init_random_particles(particles: &mut Particles, start_index: usize, end_index: usize, window_size: (u32, u32)) {
-    let pos_x_distribution = Uniform::from(10..window_size.0);
-    let pos_y_distribution = Uniform::from(10..window_size.1);
+    let pos_x_distribution = Uniform::from(10..window_size.0 - 10);
+    let pos_y_distribution = Uniform::from(10..window_size.1 - 10);
     let velocity_distribution = Uniform::from(-100.0..100.0);
     let size_distribution = Uniform::from(1.0..2.0);
     let mut rng = rand::thread_rng();
@@ -62,7 +62,7 @@ impl GameState {
             let (x, y) = (x + vx * delta, y + vy * delta);
 
             if x < 0.0 || x > self.window_size.0 as f32 || y < 0.0 || y > self.window_size.1 as f32 {
-                init_random_particles(&mut self.particles, i, i, self.window_size);
+                init_random_particles(&mut self.particles, i, i + 1, self.window_size);
             } else {
                 self.particles.positions[i] = (x, y);
             }
